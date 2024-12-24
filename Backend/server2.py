@@ -2,6 +2,7 @@ import uuid
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
+import config
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -144,4 +145,4 @@ def on_disconnect():
                 del meetings[m_id]
 
 if __name__ == '__main__':
-    socketio.run(app, host='10.32.142.35', port=5000, debug=True)
+    socketio.run(app, host=config.HOST, port=config.PORT, debug=True)
