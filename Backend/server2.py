@@ -82,7 +82,6 @@ def join_meeting(data):
         to=request.sid
     )
 
-
 @socketio.on('video_frame')
 def handle_video_frame(data):
     meeting_id = data.get('meeting_id')
