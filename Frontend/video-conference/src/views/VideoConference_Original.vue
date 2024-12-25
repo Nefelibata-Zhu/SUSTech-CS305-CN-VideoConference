@@ -3,14 +3,7 @@
     <!-- 顶部显示会议号 -->
     <el-card class="meeting-info-card" v-if="meetingId">
       <div class="card-content">
-        <i class="iconfont icon-tuichu" style="cursor: pointer; font-size: 42px; color: #000000" @click="leaveMeeting"></i>
-        <!-- 仅创建者可见的取消会议按钮 -->
-        <i
-          class="iconfont icon-quxiao"
-          v-if="isCreator"
-          style="cursor: pointer; font-size: 42px; color: #000000"
-          @click="cancelMeeting"
-        ></i>
+        <i class="iconfont icon-tuichu" style="font-size: 42px; color: #000000" @click="leaveMeeting"></i>
         <h2 style="flex: 1; text-align: center; margin: 0;">当前会议号: {{ meetingId }}</h2>
         <!-- 添加一个占位元素用于对齐 -->
         <span class="placeholder"></span>
@@ -117,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
+import { ref, reactive, onBeforeUnmount, nextTick, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import socket from '@/socket' // 导入单例 Socket 实例
 import apiClient from '@/axios'  // 确保 axios.js 位于 src 目录下
@@ -132,7 +125,6 @@ const isCameraOn = ref(false)
 const intervalId = ref(null)
 const errorMessage = ref('')
 const userName = ref('ClientA') // 本地用户名 (可以根据实际情况动态生成或获取)
-const isCreator = ref(false) // 新增：是否是会议创建者
 
 // 评论相关状态
 const messages = reactive([])          // 存储所有消息（评论和系统消息）
@@ -145,7 +137,6 @@ const scrollbar = ref(null)            // 引用 el-scrollbar
 // 方法：生成唯一 ID（用于消息 key）
 const generateId = () => '_' + Math.random().toString(36).substr(2, 9)
 
-// 方法：创建会议
 const createMeeting = async () => {
   errorMessage.value = ''
   try {
@@ -153,8 +144,6 @@ const createMeeting = async () => {
     if (res.data && res.data.meeting_id) {
       meetingId.value = res.data.meeting_id
       ElMessage.success(`会议创建成功，会议号: ${meetingId.value}`)
-
-      isCreator.value = true
 
       // 自动加入创建的会议
       await joinMeeting(meetingId.value)
@@ -217,6 +206,58 @@ const joinMeeting = async (meetingIdToJoin) => {
 
     // 发送系统消息：用户加入
     sendSystemMessage(`${userName.value} 加入了会议`)
+
+    // 接收所有当前的帧
+    socket.on('all_current_frames', (data) => {
+      console.log('Received all_current_frames:', data)
+      // data.frames = { userA: 'base64...', userB: '...' }
+      Object.assign(frames, data.frames)
+    })
+
+    // 接收其他用户发送的单帧
+    socket.on('receive_frame', (data) => {
+      const { user, frame } = data
+      frames[user] = frame
+    })
+
+    // 处理用户停止摄像头的情况
+    socket.on('remove_frame', (data) => {
+      const { user } = data
+      if (frames[user]) {
+        delete frames[user]
+      }
+    })
+
+    // 接收评论
+    socket.on('receive_comment', (data) => {
+      const { user, message, timestamp } = data
+      messages.push({
+        id: generateId(),
+        type: 'comment',
+        user,
+        message,
+        timestamp: timestamp || Date.now()
+      })
+      scrollToBottom()
+    })
+
+    // 接收系统消息
+    socket.on('system_message', (data) => {
+      const { message, timestamp } = data
+      messages.push({
+        id: generateId(),
+        type: 'system',
+        message,
+        timestamp: timestamp || Date.now()
+      })
+      scrollToBottom()
+    })
+
+    // 监听 Socket.IO 错误
+    socket.on('error', (data) => {
+      console.error('Socket.IO error:', data.message)
+      ElMessage.error(`Socket.IO 错误: ${data.message}`)
+    })
   } catch (err) {
     console.error('Error accessing camera:', err)
     errorMessage.value = '无法访问摄像头，请检查权限或设备'
@@ -244,14 +285,6 @@ const leaveMeeting = () => {
       localStream.value = null
     }
 
-    // 清除本地视频元素的 srcObject
-    if (localVideo.value) {
-      localVideo.value.srcObject = null
-    }
-
-    isCreator.value = false
-    meetingId.value = ''
-
     // 发送系统消息：用户离开
     sendSystemMessage(`${userName.value} 离开了会议`)
 
@@ -263,22 +296,6 @@ const leaveMeeting = () => {
 
     ElMessage.info('已离开会议')
   }
-}
-
-// 方法：取消会议
-const cancelMeeting = () => {
-  if (!isCreator.value) {
-    ElMessage.error('只有会议的创建者可以取消会议。')
-    return
-  }
-
-  socket.emit('cancel_meeting', {
-    meeting_id: meetingId.value,
-    user: userName.value
-  })
-
-  // 可选：显示正在取消的提示
-  ElMessage.info('正在取消会议...')
 }
 
 // 方法：切换摄像头
@@ -322,10 +339,12 @@ const stopCamera = () => {
   }
   isCameraOn.value = false
 
-  socket.emit('stop_video', {
-    meeting_id: meetingId.value,
-    user: userName.value
-  })
+  if (socket) {
+    socket.emit('stop_video', {
+      meeting_id: meetingId.value,
+      user: userName.value
+    })
+  }
   ElMessage.info('摄像头已关闭')
 }
 
@@ -352,7 +371,7 @@ const startSendingFrames = () => {
         frame: frameData
       })
     }
-  }, 50) // 每50ms发送一帧，可根据需要调整
+  }, 50) // 每300ms发送一帧，可根据需要调整
 }
 
 // 方法：停止发送视频帧
@@ -423,150 +442,25 @@ const sortedMessages = computed(() => {
   return [...messages].sort((a, b) => a.timestamp - b.timestamp)
 })
 
-// 方法：强制离开会议（会议被取消）
-const forceLeaveMeeting = () => {
-  isInMeeting.value = false
-  isCreator.value = false
-  isCameraOn.value = false
-  meetingId.value = ''
+// 生命周期钩子: 组件卸载前清理
+onBeforeUnmount(() => {
+  // 发送系统消息：用户离开
+  if (isInMeeting.value) {
+    sendSystemMessage(`${userName.value} 离开了会议`)
+  }
 
-  // 停止发送视频帧
-  stopSendingFrames()
-
-  // 停止本地摄像头
+  // 断开 Socket.IO 连接
+  if (socket) {
+    socket.disconnect()
+  }
+  // 停止本地视频流
   if (localStream.value) {
     localStream.value.getTracks().forEach(track => track.stop())
-    localStream.value = null
   }
-
-  // 清除本地视频元素的 srcObject
-  if (localVideo.value) {
-    localVideo.value.srcObject = null
+  // 清除定时器
+  if (intervalId.value) {
+    clearInterval(intervalId.value)
   }
-
-  // 清空视频帧
-  Object.keys(frames).forEach(user => delete frames[user])
-
-  // 清空 messages
-  messages.length = 0
-
-  ElMessage.info('会议已被取消。')
-}
-
-// 生命周期钩子: 组件挂载时绑定 Socket 事件
-onMounted(() => {
-  // 监听所有帧数据
-  socket.on('all_current_frames', (data) => {
-    console.log('Received all_current_frames:', data)
-    Object.assign(frames, data.frames)
-  })
-
-  // 监听单帧数据
-  socket.on('receive_frame', (data) => {
-    const { user, frame } = data
-    frames[user] = frame
-  })
-
-  // 监听移除帧
-  socket.on('remove_frame', (data) => {
-    const { user } = data
-    if (frames[user]) {
-      delete frames[user]
-    }
-  })
-
-  // 监听评论
-  socket.on('receive_comment', (data) => {
-    const { user, message, timestamp } = data
-    messages.push({
-      id: generateId(),
-      type: 'comment',
-      user,
-      message,
-      timestamp: timestamp || Date.now()
-    })
-    scrollToBottom()
-  })
-
-  // 监听系统消息
-  socket.on('system_message', (data) => {
-    const { message, timestamp} = data
-    messages.push({
-      id: generateId(),
-      type: 'system',
-      message,
-      timestamp: timestamp || Date.now()
-    })
-    scrollToBottom()
-  })
-
-  // 监听 Socket.IO 错误
-  socket.on('error', (data) => {
-    console.error('Socket.IO error:', data.message)
-    ElMessage.error(`Socket.IO 错误: ${data.message}`)
-  })
-
-  // 监听是否为创建者
-  socket.on('joined_meeting', (data) => {
-    isCreator.value = data.is_creator
-    if (data.is_creator) {
-      ElMessage.success('你是本次会议的创建者。')
-    }
-  })
-
-  // 监听会议取消事件
-  socket.on('meeting_canceled', (data) => {
-    ElMessage.info(data.message || '会议已被取消。')
-    forceLeaveMeeting()
-  })
-})
-
-// 生命周期钩子: 组件卸载前清理 Socket 事件监听（避免内存泄漏）
-onBeforeUnmount(() => {
-  if (isInMeeting.value) {
-    // 发送系统消息：用户离开
-    sendSystemMessage(`${userName.value} 离开了会议`)
-
-    // 向服务器发送离开会议事件
-    socket.emit('leave_meeting', {
-      meeting_id: meetingId.value,
-      user: userName.value
-    })
-
-    // 停止发送视频帧
-    stopSendingFrames()
-
-    // 停止本地摄像头
-    if (localStream.value) {
-      localStream.value.getTracks().forEach(track => track.stop())
-      localStream.value = null
-    }
-
-    // 清除本地视频元素的 srcObject
-    if (localVideo.value) {
-      localVideo.value.srcObject = null
-    }
-
-    // 清空视频帧
-    Object.keys(frames).forEach(user => delete frames[user])
-
-    // 清空 messages
-    messages.length = 0
-
-    meetingId.value = ''
-
-    ElMessage.info('已离开会议')
-  }
-
-  // 移除 Socket.IO 事件监听器
-  socket.off('all_current_frames')
-  socket.off('receive_frame')
-  socket.off('remove_frame')
-  socket.off('receive_comment')
-  socket.off('system_message')
-  socket.off('error')
-  socket.off('joined_meeting')
-  socket.off('meeting_canceled')
 })
 </script>
 
@@ -681,3 +575,4 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 </style>
+
