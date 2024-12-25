@@ -128,6 +128,27 @@ def handle_stop_video(data):
         include_self=False
     )
 
+@socketio.on('send_comment')
+def handle_send_comment(data):
+    meeting_id = data.get('meeting_id')
+    user = data.get('user')
+    message = data.get('message')
+    timestamp = data.get('timestamp')
+    if not meeting_id or meeting_id not in meetings:
+        emit('error', {'message': 'Meeting not found'}, to=request.sid)
+        return
+    if not user:
+        emit('error', {'message': 'No user specified to stop video'}, to=request.sid)
+        return
+    
+    emit(
+        'receive_comment',
+        {'user': user, 'message': message},
+        room=meeting_id,
+        include_self=False
+    )
+
+
 @socketio.on('connect')
 def on_connect():
     print('A user connected')
