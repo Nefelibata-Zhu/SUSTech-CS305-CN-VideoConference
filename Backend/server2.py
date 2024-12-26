@@ -311,6 +311,7 @@ def handle_send_system_message(data):
 
 @socketio.on('cancel_meeting')
 def cancel_meeting(data):
+    # print(123)
     meeting_id = data.get('meeting_id')
     user = data.get('user')
 
