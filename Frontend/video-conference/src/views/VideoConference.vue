@@ -355,31 +355,23 @@
     </el-card>
 
     <!-- 未进入会议时，提供创建或加入会议的操作 -->
+
     <el-card class="control-card" v-if="!isInMeeting">
+      <el-input v-model="userName" placeholder="输入用户名" clearable style="width: 100%; margin-top: 1em;"></el-input>
       <el-button type="primary" @click="createMeeting" style="width: 100%;">
         创建会议 (随机ID)
       </el-button>
 
       <div class="join-section">
-        <el-input
-          v-model="inputMeetingId"
-          placeholder="输入会议号"
-          clearable
-          style="width: 100%; margin-top: 1em;"
-        ></el-input>
+        <el-input v-model="inputMeetingId" placeholder="输入会议号" clearable
+          style="width: 100%; margin-top: 1em;"></el-input>
         <el-button type="success" @click="checkAndJoinMeeting" style="width: 100%; margin-top: 0.5em;">
           加入会议
         </el-button>
       </div>
 
       <!-- 错误信息显示 -->
-      <el-alert
-        v-if="errorMessage"
-        :title="errorMessage"
-        type="error"
-        show-icon
-        style="margin-top: 1em;"
-      ></el-alert>
+      <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon style="margin-top: 1em;"></el-alert>
     </el-card>
 
     <!-- 已进入会议后，展示视频和评论区域 -->
@@ -395,11 +387,7 @@
             </div>
 
             <!-- 远程视频 -->
-            <div
-              v-for="(frameData, user) in frames"
-              :key="user"
-              class="video-container"
-            >
+            <div v-for="(frameData, user) in frames" :key="user" class="video-container">
               <h4>{{ user }}</h4>
               <img :src="frameData" alt="Remote Video Frame" class="remote-video" />
             </div>
@@ -407,11 +395,7 @@
 
           <!-- 摄像头控制按钮 -->
           <div class="camera-control">
-            <el-button
-              type="warning"
-              @click="toggleCamera"
-              style="width: 100%;"
-            >
+            <el-button type="warning" @click="toggleCamera" style="width: 100%;">
               {{ isCameraOn ? '关闭摄像头' : '开启摄像头' }}
             </el-button>
           </div>
@@ -436,12 +420,7 @@
 
             <!-- 评论输入区域 -->
             <div class="comment-input">
-              <el-input
-                v-model="newComment"
-                placeholder="输入评论..."
-                @keyup.enter="sendComment"
-                clearable
-              ></el-input>
+              <el-input v-model="newComment" placeholder="输入评论..." @keyup.enter="sendComment" clearable></el-input>
               <el-button type="primary" @click="sendComment" style="width: 100%; margin-top: 0.5em;">
                 发送
               </el-button>
@@ -469,7 +448,7 @@ const isInMeeting = ref(false)
 const isCameraOn = ref(false)
 const intervalId = ref(null)
 const errorMessage = ref('')
-const userName = ref('ClientA') // 本地用户名 (可以根据实际情况动态生成或获取)
+const userName = ref('') // 本地用户名 (可以根据实际情况动态生成或获取)
 
 // 评论相关状态
 const messages = reactive([])          // 存储所有消息（评论和系统消息）
@@ -487,6 +466,7 @@ const createMeeting = async () => {
   errorMessage.value = ''
   try {
     const res = await apiClient.post('/create_meeting')
+    console.log(res)
     if (res.data && res.data.meeting_id) {
       meetingId.value = res.data.meeting_id
       ElMessage.success(`会议创建成功，会议号: ${meetingId.value}`)
@@ -507,6 +487,13 @@ const checkAndJoinMeeting = async () => {
     errorMessage.value = '请输入会议号'
     return
   }
+
+  if (!userName.value || userName.value === '') {
+    // console.log('wrong name')
+    errorMessage.value = '请输入用户名'
+    return
+  }
+  console.log(userName)
 
   try {
     const res = await apiClient.get('/check_meeting', {
@@ -539,7 +526,7 @@ const joinMeeting = async (meetingIdToJoin) => {
     }
 
     // 连接到 Socket.IO 服务器
-    socket.value = io('http://127.0.0.1:5000', {
+    socket.value = io('http://10.32.142.35:5000', {
       transports: ['websocket', 'polling']
     })
 
@@ -587,6 +574,7 @@ const joinMeeting = async (meetingIdToJoin) => {
     // 接收评论
     socket.value.on('receive_comment', (data) => {
       const { user, message, timestamp } = data
+      console.log(data)
       messages.push({
         id: generateId(),
         type: 'comment',
@@ -693,7 +681,7 @@ const startSendingFrames = () => {
         frame: frameData
       })
     }
-  }, 300) // 每300ms发送一帧，可根据需要调整
+  }, 50) // 每300ms发送一帧，可根据需要调整
 }
 
 // 方法：发送评论
@@ -881,4 +869,3 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 </style>
-

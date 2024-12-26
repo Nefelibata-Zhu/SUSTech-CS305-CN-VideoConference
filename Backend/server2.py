@@ -37,6 +37,9 @@ def create_meeting():
         'frames': {}
     }
 
+    print('meeting create',meeting_id)
+    print(meetings)
+
     return jsonify({
         'message': f'Meeting {meeting_id} created successfully',
         'meeting_id': meeting_id
