@@ -98,6 +98,10 @@ import { ElMessage } from 'element-plus'
 import socket from '@/socket' // 导入单例 Socket 实例
 import apiClient from '@/axios'  // 确保 axios.js 位于 src 目录下
 
+import CryptoJS from 'crypto-js';
+
+// import { da } from 'element-plus/es/locale';
+
 // Reactive State
 const meetingId = ref('')
 const inputMeetingId = ref('')
@@ -107,7 +111,7 @@ const isInMeeting = ref(false)
 const isCameraOn = ref(false)
 const intervalId = ref(null)
 const errorMessage = ref('')
-const userName = ref('ClientA') // 本地用户名 (可以根据实际情况动态生成或获取)
+const userName = ref(`Client:${Math.random().toString(36).substring(2, 8)}`); // 本地用户名 (可以根据实际情况动态生成或获取)
 const isCreator = ref(false) // 新增：是否是会议创建者
 
 // 评论相关状态
@@ -117,6 +121,11 @@ const newComment = ref('')             // 新输入的评论
 // Template Refs
 const localVideo = ref(null)
 const scrollbar = ref(null)            // 引用 el-scrollbar
+
+let key = ref(null)
+let iv = ref(null)
+let encrypted_data = ref(null)
+let decrypted_data = ref(null)
 
 // 方法：生成唯一 ID（用于消息 key）
 const generateId = () => '_' + Math.random().toString(36).substr(2, 9)
@@ -130,7 +139,6 @@ const createMeeting = async () => {
     if (res.data && res.data.meeting_id) {
       meetingId.value = res.data.meeting_id
       ElMessage.success(`会议创建成功，会议号: ${meetingId.value}`)
-
       isCreator.value = true
 
       // 自动加入创建的会议
@@ -328,16 +336,19 @@ const startSendingFrames = () => {
       canvas.height = video.videoHeight
       context.drawImage(video, 0, 0, canvas.width, canvas.height)
       const frameData = canvas.toDataURL('image/jpeg')
+      // console.log(frameData)
+      const encrypt_frameData = encrypt_the_data(frameData)
 
       // 发送帧数据到服务器
       socket.emit('video_frame', {
         meeting_id: meetingId.value,
         user: userName.value,
-        frame: frameData
+        frame: encrypt_frameData
       })
     }
   }, 50) // 每50ms发送一帧，可根据需要调整
 }
+
 
 // 方法：停止发送视频帧
 const stopSendingFrames = () => {
@@ -352,11 +363,12 @@ const sendComment = () => {
   const message = newComment.value.trim()
   if (message === '') return
 
+  encrypted_data = encrypt_the_data(message)
   // 发送评论到服务器
   socket.emit('send_comment', {
     meeting_id: meetingId.value,
     user: userName.value,
-    message,
+    message: encrypted_data,
     timestamp: Date.now()
   })
 
@@ -437,8 +449,32 @@ const forceLeaveMeeting = () => {
   ElMessage.info('会议已被取消。')
 }
 
+//加密
+const encrypt_the_data = (data) => {
+  return CryptoJS.AES.encrypt(data, key, {
+    iv: iv,
+    mode: CryptoJS.mode.CBC,
+    padding: CryptoJS.pad.Pkcs7
+  }).toString()
+}
+
+const decrypt_the_data = (data) => {
+  return CryptoJS.AES.decrypt(data, key, {
+    iv: iv,
+    mode: CryptoJS.mode.CBC,
+    padding: CryptoJS.pad.Pkcs7
+  }).toString(CryptoJS.enc.Utf8)
+}
+
 // 生命周期钩子: 组件挂载时绑定 Socket 事件
 onMounted(() => {
+  // 设置key和iv
+  socket.on('set_key_and_iv', (data) => {
+    key = CryptoJS.enc.Base64.parse(data.key)
+    iv = CryptoJS.enc.Base64.parse(data.iv)
+    console.log(key)
+    console.log(iv)
+  })
   // 监听所有帧数据
   socket.on('all_current_frames', (data) => {
     console.log('Received all_current_frames:', data)
@@ -448,7 +484,7 @@ onMounted(() => {
   // 监听单帧数据
   socket.on('receive_frame', (data) => {
     const { user, frame } = data
-    frames[user] = frame
+    frames[user] = decrypt_the_data(frame)
   })
 
   // 监听移除帧
@@ -462,11 +498,14 @@ onMounted(() => {
   // 监听评论
   socket.on('receive_comment', (data) => {
     const { user, message, timestamp } = data
+    decrypted_data = decrypt_the_data(message)
+    console.log('bef_decrypted', message)
+    console.log('after_decrypted', decrypted_data)
     messages.push({
       id: generateId(),
       type: 'comment',
       user,
-      message,
+      message: decrypted_data,
       timestamp: timestamp || Date.now()
     })
     scrollToBottom()
