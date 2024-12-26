@@ -40,7 +40,8 @@ def create_meeting():
         meetings[meeting_id] = {
             'creator_sid': None,  # To be set when the first user joins
             'clients': {},  # {sid: username}
-            'frames': {}
+            'frames': {},  
+            'deskframe': {} # desktop frame {username: deskframe}
         }
 
         print("meetings are: ", meetings)
@@ -153,6 +154,16 @@ def leave_meeting(data):
                 include_self=False
             )
 
+        # 移除用户的桌面帧
+        if user in meetings[meeting_id]['deskframe']:
+            del meetings[meeting_id]['deskframe'][user]
+            emit(
+                'remove_deskframe',
+                {'user': user},
+                room=meeting_id,
+                include_self=False
+            )
+
         # 发送系统消息
         emit(
             'system_message',
@@ -248,6 +259,75 @@ def handle_stop_video(data):
     else:
         emit('error', {'message': '未找到用户的视频帧'}, to=request.sid)
 
+@socketio.on('desktop_frame')
+def handle_desktop_frame(data):
+    print("receive frame")
+    meeting_id = data.get('meeting_id')
+    deskframe = data.get('frame')
+    user = data.get('user')
+
+    if not meeting_id or meeting_id not in meetings:
+        emit('error', {'message': '会议不存在'}, to=request.sid)
+        return
+    if not user:
+        emit('error', {'message': '视频帧中未指定用户'}, to=request.sid)
+        return
+
+    # 确保用户名与 SID 匹配
+    if meetings[meeting_id]['clients'].get(request.sid) != user:
+        emit('error', {'message': '用户名不匹配'}, to=request.sid)
+        return
+
+    # 保存或更新用户的视频帧
+    if user in meetings[meeting_id]['deskframe'] or len(meetings[meeting_id]['deskframe']) == 0:
+        meetings[meeting_id]['deskframe'][user] = deskframe
+
+        # 广播给房间内的其他用户
+        emit(
+            'receive_desktop_frame',
+            {'user': user, 'frame': deskframe},
+            room=meeting_id,
+            include_self=False
+        )
+    else:
+        emit(
+            'refuse_desktop_frame',
+            to=request.sid
+        )
+        emit('error', {'message': '需要等到共享桌面者结束共享'}, to=request.sid)
+        
+
+@socketio.on('stop_desktop')
+def handle_stop_desktop(data):
+    meeting_id = data.get('meeting_id')
+    user = data.get('user')
+
+    if not meeting_id or meeting_id not in meetings:
+        emit('error', {'message': '会议不存在'}, to=request.sid)
+        return
+    if not user:
+        emit('error', {'message': '未指定要停止视频的用户'}, to=request.sid)
+        return
+
+    # 确保用户名与 SID 匹配
+    if meetings[meeting_id]['clients'].get(request.sid) != user:
+        emit('error', {'message': '用户名不匹配'}, to=request.sid)
+        return
+
+    # 如果是这个用户，则移除用户
+    if user in meetings[meeting_id]['deskframe']:
+        del meetings[meeting_id]['deskframe'][user]
+        print(f"用户 {user} 在会议 {meeting_id} 中停止了桌面分享")
+
+        # 通知房间内的其他用户移除视频帧
+        emit(
+            'remove_desktop',
+            {'user': user},
+            room=meeting_id,
+            include_self=False
+        )
+    else:
+        emit('error', {'message': '需要等到共享桌面者结束共享'}, to=request.sid)
 
 @socketio.on('send_comment')
 def handle_send_comment(data):
@@ -363,6 +443,16 @@ def on_disconnect():
                 # 广播给同会议的其他客户端，让他们移除画面
                 emit(
                     'remove_frame',
+                    {'user': user},
+                    room=meeting_id,
+                    include_self=False
+                )
+            # 移除屏幕共享
+            if user in meetings[meeting_id]['deskframe']:
+                del meetings[meeting_id]['deskframe'][user]
+                # 广播给同会议的其他客户端，让他们移除画面
+                emit(
+                    'remove_desktop',
                     {'user': user},
                     room=meeting_id,
                     include_self=False

@@ -42,6 +42,18 @@
           <div class="videos-container">
             <!-- 本地视频 -->
             <div class="video-container">
+              <h3>我的屏幕</h3>
+              <video ref="localDesktop" autoplay muted class="local-video"></video>
+            </div>
+
+            <!-- 桌面 -->
+            <div v-for="(frameData, user) in deskframe" :key="user" class="video-container">
+              <h4>{{ user }}的桌面</h4>
+              <img :src="frameData" alt="Remote Video Frame" class="remote-video" />
+            </div>
+
+            <!-- 本地视频 -->
+            <div class="video-container">
               <h3>我</h3>
               <video ref="localVideo" autoplay muted class="local-video"></video>
             </div>
@@ -57,6 +69,13 @@
           <div class="camera-control">
             <el-button type="warning" @click="toggleCamera" style="width: 100%;">
               {{ isCameraOn ? '关闭摄像头' : '开启摄像头' }}
+            </el-button>
+          </div>
+
+          <!-- 桌面分享控制按钮 -->
+          <div class="camera-control">
+            <el-button type="warning" @click="toggleDesktop" style="width: 100%;">
+              {{ isDeskOn ? '停止桌面分享' : '开启桌面分享' }}
             </el-button>
           </div>
         </el-col>
@@ -102,10 +121,14 @@ import apiClient from '@/axios'  // 确保 axios.js 位于 src 目录下
 const meetingId = ref('')
 const inputMeetingId = ref('')
 const localStream = ref(null)
+const localDeskStream = ref(null)
 const frames = reactive({})
+const deskframe = reactive({})
 const isInMeeting = ref(false)
 const isCameraOn = ref(false)
 const intervalId = ref(null)
+const isDeskOn = ref(false)
+const intervalId2 = ref(null)
 const errorMessage = ref('')
 const userName = ref('ClientA') // 本地用户名 (可以根据实际情况动态生成或获取)
 const isCreator = ref(false) // 新增：是否是会议创建者
@@ -116,6 +139,7 @@ const newComment = ref('')             // 新输入的评论
 
 // Template Refs
 const localVideo = ref(null)
+const localDesktop = ref(null)
 const scrollbar = ref(null)            // 引用 el-scrollbar
 
 // 方法：生成唯一 ID（用于消息 key）
@@ -186,6 +210,9 @@ const joinMeeting = async (meetingIdToJoin) => {
     if (localVideo.value) {
       localVideo.value.srcObject = localStream.value
     }
+    if (localDesktop.value) {
+      localDesktop.value.srcObject = localDeskStream.value
+    }
 
     // 向后端发送“join_meeting”事件
     socket.emit('join_meeting', {
@@ -195,6 +222,7 @@ const joinMeeting = async (meetingIdToJoin) => {
 
     isInMeeting.value = true
     isCameraOn.value = true
+    isDeskOn.value = false
 
     // 开始发送视频帧
     startSendingFrames()
@@ -218,9 +246,11 @@ const leaveMeeting = () => {
 
     isInMeeting.value = false
     isCameraOn.value = false
+    isDeskOn.value = false
 
     // 停止发送视频帧
     stopSendingFrames()
+    stopDesktopFrames()
 
     // 停止本地摄像头
     if (localStream.value) {
@@ -232,6 +262,9 @@ const leaveMeeting = () => {
     if (localVideo.value) {
       localVideo.value.srcObject = null
     }
+    if (localDesktop.value) {
+      localDesktop.value.srcObject = null
+    }
 
     isCreator.value = false
     meetingId.value = ''
@@ -241,6 +274,7 @@ const leaveMeeting = () => {
 
     // 清空视频帧
     Object.keys(frames).forEach(user => delete frames[user])
+    Object.keys(deskframe).forEach(user => delete frames[user])
 
     // 清空 messages
     messages.length = 0
@@ -322,10 +356,28 @@ const startSendingFrames = () => {
   const context = canvas.getContext('2d')
   const video = localVideo.value
 
+  // const targetWidth = 160;
+  // const targetHeight = 120;
+
   intervalId.value = setInterval(() => {
     if (video && localStream.value) {
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
+      // const videoWidth = video.videoWidth
+      // const videoHeight = video.videoHeight
+      
+      // canvas.width = targetWidth;
+      // canvas.height = targetHeight;
+
+      // const scaleX = targetWidth / videoWidth;
+      // const scaleY = targetHeight / videoHeight;
+      // const scale = Math.min(scaleX, scaleY);
+
+      // const offsetX = (targetWidth - videoWidth * scale) / 2;
+      // const offsetY = (targetHeight - videoHeight * scale) / 2;
+
+      // context.clearRect(0, 0, canvas.width, canvas.height);  // 清空 canvas
+      // context.drawImage(video, offsetX, offsetY, videoWidth * scale, videoHeight * scale);
       context.drawImage(video, 0, 0, canvas.width, canvas.height)
       const frameData = canvas.toDataURL('image/jpeg')
 
@@ -336,7 +388,7 @@ const startSendingFrames = () => {
         frame: frameData
       })
     }
-  }, 50) // 每50ms发送一帧，可根据需要调整
+  }, 100) // 每50ms发送一帧，可根据需要调整
 }
 
 // 方法：停止发送视频帧
@@ -344,6 +396,98 @@ const stopSendingFrames = () => {
   if (intervalId.value) {
     clearInterval(intervalId.value)
     intervalId.value = null
+  }
+}
+
+// 方法：切换摄像头
+const toggleDesktop = () => {
+  if (isDeskOn.value) {
+    stopDesktop()
+  } else {
+    startDesktop()
+  }
+}
+
+// 方法：开启桌面
+const startDesktop = async () => {
+  try {
+    if (!localDeskStream.value) {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true  // 只请求视频流
+      })
+      localDeskStream.value = stream
+      await nextTick()
+      if (localDesktop.value) {
+        localDesktop.value.srcObject = localDeskStream.value
+      }
+    }
+    startSendingDesktopFrames()
+    isDeskOn.value = true
+    ElMessage.success('桌面已开始分享')
+  } catch (err) {
+    console.error('Error accessing camera:', err)
+    ElMessage.error('无法分享桌面，请检查权限或设备')
+  }
+}
+
+// 方法：停止桌面
+const stopDesktop = () => {
+  if (localDeskStream.value) {
+    localDeskStream.value.getTracks().forEach(track => track.stop())
+    localDeskStream.value = null
+  }
+  if (intervalId2.value) {
+    clearInterval(intervalId2.value)
+    intervalId2.value = null
+  }
+  isDeskOn.value = false
+
+  socket.emit('stop_desktop', {
+    meeting_id: meetingId.value,
+    user: userName.value
+  })
+  ElMessage.info('摄像头已关闭')
+}
+
+// 方法：开始发送桌面帧
+const startSendingDesktopFrames = async () => {
+  if (intervalId2.value) {
+    clearInterval(intervalId2.value)
+  }
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+
+  const videoTrack = localDeskStream.value.getVideoTracks()[0] // 获取视频轨道
+  const video = localDesktop.value
+  // video.srcObject = stream
+
+  // // 当视频准备好播放时，开始捕获帧
+  // video.onplaying = () => {
+  intervalId2.value = setInterval(() => {
+    console.log("hello")
+    if (video && videoTrack.readyState === 'live') {
+      canvas.width = video.videoWidth  // 使用视频的宽度
+      canvas.height = video.videoHeight  // 使用视频的高度
+      context.drawImage(video, 0, 0, canvas.width, canvas.height)  // 将桌面内容绘制到 canvas 上
+      const frameData = canvas.toDataURL('image/jpeg')  // 获取当前帧的 base64 编码
+      // 发送帧数据到服务器
+      socket.emit('desktop_frame', {
+        meeting_id: meetingId.value,
+        user: userName.value,
+        frame: frameData
+      })
+    }
+  }, 500)  // 每100ms发送一帧，可以根据需要调整帧率
+  // }
+
+  // video.play()  // 播放桌面视频流
+}
+
+//方法：停止屏幕共享
+const stopDesktopFrames = () => {
+  if (intervalId2.value) {
+    clearInterval(intervalId2.value)
+    intervalId2.value = null
   }
 }
 
@@ -412,10 +556,12 @@ const forceLeaveMeeting = () => {
   isInMeeting.value = false
   isCreator.value = false
   isCameraOn.value = false
+  isDeskOn.value = false
   meetingId.value = ''
 
   // 停止发送视频帧
   stopSendingFrames()
+  stopDesktopFrames()
 
   // 停止本地摄像头
   if (localStream.value) {
@@ -430,6 +576,7 @@ const forceLeaveMeeting = () => {
 
   // 清空视频帧
   Object.keys(frames).forEach(user => delete frames[user])
+  Object.keys(deskframe).forEach(user => delete frames[user])
 
   // 清空 messages
   messages.length = 0
@@ -451,12 +598,39 @@ onMounted(() => {
     frames[user] = frame
   })
 
+  // 监听单帧桌面
+  socket.on('receive_desktop_frame', (data) => {
+    const { user, frame } = data
+    if (deskframe[user] || deskframe.length == 0) {
+      console.log("empty")
+      deskframe[user] = frame
+    }else{
+      console.log("not empty")
+      Object.keys(deskframe).forEach(user => delete frames[user])
+      deskframe[user] = frame
+    }
+  })
+
   // 监听移除帧
   socket.on('remove_frame', (data) => {
     const { user } = data
     if (frames[user]) {
       delete frames[user]
     }
+  })
+    // 监听移除桌面
+  socket.on('remove_desktop', (data) => {
+    const { user } = data
+    if (deskframe[user]) {
+      deskframe[user] = data
+    }else{
+      Object.keys(deskframe).forEach(user => delete frames[user])
+      deskframe[user] = data
+    }
+  })
+  // 拒绝分享桌面
+  socket.on('refuse_desktop_frame', () => {
+    stopDesktop()
   })
 
   // 监听评论
@@ -519,6 +693,7 @@ onBeforeUnmount(() => {
 
     // 停止发送视频帧
     stopSendingFrames()
+    stopDesktopFrames()
 
     // 停止本地摄像头
     if (localStream.value) {
@@ -533,6 +708,7 @@ onBeforeUnmount(() => {
 
     // 清空视频帧
     Object.keys(frames).forEach(user => delete frames[user])
+    Object.keys(deskframe).forEach(user => delete frames[user])
 
     // 清空 messages
     messages.length = 0
