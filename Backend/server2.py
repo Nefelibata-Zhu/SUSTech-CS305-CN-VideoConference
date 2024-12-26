@@ -3,6 +3,24 @@ from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 import config
+# from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+# from cryptography.hazmat.backends import default_backend
+# from cryptography.hazmat.primitives import padding
+# from cryptography.hazmat.primitives import hashes
+# from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import os
+import base64
+
+# def encrypt(encryptor, data):
+#     padded_data = padder.update(data) + padder.finalize()
+#     return encryptor.update(padded_data) + encryptor.finalize()
+
+# def decrypt(decryptor, data):
+#     padded_data = decrypt.update(data) + decrypt.finalize()
+#     return unpadder.update(padded_data) + unpadder.finalize()
+
+# padder = padding.PKCS7(128).padder()
+# unpadder = padding.PKCS7(128).unpadder()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -24,24 +42,33 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # }
 meetings = {}
 
-
 @app.route('/create_meeting', methods=['POST'])
 def create_meeting():
     """
     后端自动生成一个不重复的随机会议号，然后初始化会议数据并返回给前端
     """
+    key = os.urandom(32)
+    iv = os.urandom(16)
+    # print(type(key))
+    print('generate:',key,',',iv)
     while True:
         # 使用 UUID 生成随机会议号，这里只取前 8 位即可
         meeting_id = str(uuid.uuid4())[:8]
         if meeting_id in meetings:
             continue
-
+        
+        # cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
         # 初始化会议数据
+        
         meetings[meeting_id] = {
             'creator_sid': None,  # To be set when the first user joins
             'clients': {},  # {sid: username}
             'frames': {},  
-            'deskframe': {} # desktop frame {username: deskframe}
+            'deskframe': {}, # desktop frame {username: deskframe},
+            'key': base64.b64encode(key).decode('utf-8'),
+            'iv': base64.b64encode(iv).decode('utf-8')
+            # 'encryptor': cipher.encryptor(),
+            # 'decryptor': cipher.decryptor()
         }
 
         print("meetings are: ", meetings)
@@ -74,6 +101,7 @@ def check_meeting():
 def join_meeting(data):
     meeting_id = data.get('meeting_id')
     user = data.get('user')
+
 
     print("In join_meeting, meeting_id is: ", meeting_id)
     if not meeting_id or meeting_id not in meetings:
@@ -110,6 +138,12 @@ def join_meeting(data):
         include_self=False
     )
 
+    emit(
+        'set_key_and_iv',
+        {'key': meetings[meeting_id]['key'],
+         'iv': meetings[meeting_id]['iv']},
+         to=request.sid
+    )
     # 发送当前所有的视频帧给新加入的用户
     emit(
         'all_current_frames',
@@ -339,6 +373,8 @@ def handle_send_comment(data):
     if not meeting_id or meeting_id not in meetings:
         emit('error', {'message': '会议不存在'}, to=request.sid)
         return
+    print(user)
+    print(message)
     if not user or not message:
         emit('error', {'message': '评论需要用户名和内容'}, to=request.sid)
         return
