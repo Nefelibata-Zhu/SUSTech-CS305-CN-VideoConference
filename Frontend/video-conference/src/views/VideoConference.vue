@@ -22,12 +22,54 @@
         创建会议 (随机ID)
       </el-button>
 
-      <div class="join-section">
-        <el-input v-model="inputMeetingId" placeholder="输入会议号" clearable
-          style="width: 100%; margin-top: 1em;"></el-input>
-        <el-button type="success" @click="checkAndJoinMeeting" style="width: 100%; margin-top: 0.5em;">
-          加入会议
-        </el-button>
+<!--      <div class="join-section">-->
+<!--        <el-input v-model="inputMeetingId" placeholder="输入会议号" clearable-->
+<!--          style="width: 100%; margin-top: 1em;"></el-input>-->
+<!--        <el-button type="success" @click="checkAndJoinMeeting" style="width: 100%; margin-top: 0.5em;">-->
+<!--          加入会议-->
+<!--        </el-button>-->
+<!--      </div>-->
+
+      <!-- 优化后的会议列表展示 -->
+      <div class="meeting-list-section" style="margin-top: 1em;">
+        <h3>当前会议列表</h3>
+        <el-table
+          :data="meetingList"
+          style="width: 100%;"
+          v-if="meetingList.length"
+          align="center"
+          border
+          stripe>
+
+          <el-table-column
+            prop="meeting_id"
+            label="会议号"
+            width="180"
+            header-align="center">
+          </el-table-column>
+
+          <el-table-column
+            prop="creator"
+            label="创建者"
+            width="180"
+            header-align="center">
+          </el-table-column>
+
+          <el-table-column
+            label="操作"
+            width="120"
+            header-align="center">
+            <template #default="scope">
+              <el-button
+                type="success"
+                size="mini"
+                @click="joinSelectedMeeting(scope.row.meeting_id)">
+                加入
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else description="暂无会议"></el-empty>
       </div>
 
       <!-- 错误信息显示 -->
@@ -89,9 +131,11 @@
                 <div v-for="(message) in sortedMessages" :key="message.id" class="message-item" :class="message.type">
                   <template v-if="message.type === 'comment'">
                     <strong>{{ message.user }}:</strong> {{ message.message }}
+                    <span class="timestamp">{{ formatTimestamp(message.timestamp) }}</span>
                   </template>
                   <template v-else-if="message.type === 'system'">
                     <em>{{ message.message }}</em>
+                    <span class="timestamp">{{ formatTimestamp(message.timestamp) }}</span>
                   </template>
                 </div>
               </el-scrollbar>
@@ -123,7 +167,7 @@ import CryptoJS from 'crypto-js';
 
 // Reactive State
 const meetingId = ref('')
-const inputMeetingId = ref('')
+// const inputMeetingId = ref('')
 const localStream = ref(null)
 const localDeskStream = ref(null)
 const frames = reactive({})
@@ -137,6 +181,7 @@ const errorMessage = ref('')
 const userName = ref(`Client:${Math.random().toString(36).substring(2, 8)}`); // 本地用户名 (可以根据实际情况动态生成或获取)
 const isCreator = ref(false) // 新增：是否是会议创建者
 
+const meetingList = ref([]);
 // 评论相关状态
 const messages = reactive([])          // 存储所有消息（评论和系统消息）
 const newComment = ref('')             // 新输入的评论
@@ -151,8 +196,30 @@ let iv = ref(null)
 let encrypted_data = ref(null)
 let decrypted_data = ref(null)
 
+// 方法：格式化时间戳
+const formatTimestamp = (timestamp) => {
+  const date = timestamp ? new Date(timestamp) : new Date();
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const seconds = date.getSeconds().toString().padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+
 // 方法：生成唯一 ID（用于消息 key）
 const generateId = () => '_' + Math.random().toString(36).substr(2, 9)
+
+// 新增：获取会议列表
+const fetchMeetingList = async () => {
+  try {
+    const res = await apiClient.get('/list_meetings') // 确保后端有此 API
+    if (res.data && res.data.meetings) {
+      meetingList.value = res.data.meetings
+    }
+  } catch (err) {
+    console.error('Error fetching meeting list:', err.message)
+    ElMessage.error('获取会议列表失败，请稍后重试')
+  }
+}
 
 // 方法：创建会议
 const createMeeting = async () => {
@@ -174,37 +241,48 @@ const createMeeting = async () => {
   }
 }
 
-// 方法：检查并加入会议
-const checkAndJoinMeeting = async () => {
-  errorMessage.value = ''
-  if (!inputMeetingId.value) {
-    errorMessage.value = '请输入会议号'
+// 方法：通过选择列表加入会议
+const joinSelectedMeeting = async (selectedMeetingId) => {
+  if (!selectedMeetingId) {
+    ElMessage.error('请选择一个会议加入')
     return
   }
 
-  if (!userName.value || userName.value === '') {
-    // console.log('wrong name')
-    errorMessage.value = '请输入用户名'
-    return
-  }
-  console.log(userName)
-
-  try {
-    const res = await apiClient.get('/check_meeting', {
-      params: { meeting_id: inputMeetingId.value }
-    })
-    // 如果 exist: true 则加入，否则报错
-    if (res.data && res.data.exist) {
-      meetingId.value = inputMeetingId.value
-      await joinMeeting(meetingId.value)
-    } else {
-      errorMessage.value = '会议不存在，请检查会议号'
-    }
-  } catch (err) {
-    console.error('Error checking meeting:', err.message)
-    errorMessage.value = '服务器连接失败，请稍后重试'
-  }
+  meetingId.value = selectedMeetingId
+  await joinMeeting(meetingId.value)
 }
+
+// // 方法：检查并加入会议
+// const checkAndJoinMeeting = async () => {
+//   errorMessage.value = ''
+//   if (!inputMeetingId.value) {
+//     errorMessage.value = '请输入会议号'
+//     return
+//   }
+//
+//   if (!userName.value || userName.value === '') {
+//     // console.log('wrong name')
+//     errorMessage.value = '请输入用户名'
+//     return
+//   }
+//   console.log(userName)
+//
+//   try {
+//     const res = await apiClient.get('/check_meeting', {
+//       params: { meeting_id: inputMeetingId.value }
+//     })
+//     // 如果 exist: true 则加入，否则报错
+//     if (res.data && res.data.exist) {
+//       meetingId.value = inputMeetingId.value
+//       await joinMeeting(meetingId.value)
+//     } else {
+//       errorMessage.value = '会议不存在，请检查会议号'
+//     }
+//   } catch (err) {
+//     console.error('Error checking meeting:', err.message)
+//     errorMessage.value = '服务器连接失败，请稍后重试'
+//   }
+// }
 
 // 方法：加入会议
 const joinMeeting = async (meetingIdToJoin) => {
@@ -373,7 +451,7 @@ const startSendingFrames = () => {
       canvas.height = video.videoHeight
       // const videoWidth = video.videoWidth
       // const videoHeight = video.videoHeight
-      
+
       // canvas.width = targetWidth;
       // canvas.height = targetHeight;
 
@@ -614,7 +692,8 @@ const decrypt_the_data = (data) => {
 }
 
 // 生命周期钩子: 组件挂载时绑定 Socket 事件
-onMounted(() => {
+onMounted(async () => {
+  await fetchMeetingList()
   // 设置key和iv
   socket.on('set_key_and_iv', (data) => {
     key = CryptoJS.enc.Base64.parse(data.key)
@@ -630,17 +709,17 @@ onMounted(() => {
 
   // 监听单帧数据
   socket.on('receive_frame', (data) => {
-    const { user, frame } = data
+    const {user, frame} = data
     frames[user] = decrypt_the_data(frame)
   })
 
   // 监听单帧桌面
   socket.on('receive_desktop_frame', (data) => {
-    const { user, frame } = data
+    const {user, frame} = data
     if (deskframe[user] || deskframe.length == 0) {
       console.log("empty")
       deskframe[user] = frame
-    }else{
+    } else {
       console.log("not empty")
       Object.keys(deskframe).forEach(user => delete frames[user])
       deskframe[user] = frame
@@ -649,17 +728,17 @@ onMounted(() => {
 
   // 监听移除帧
   socket.on('remove_frame', (data) => {
-    const { user } = data
+    const {user} = data
     if (frames[user]) {
       delete frames[user]
     }
   })
-    // 监听移除桌面
+  // 监听移除桌面
   socket.on('remove_desktop', (data) => {
-    const { user } = data
+    const {user} = data
     if (deskframe[user]) {
       deskframe[user] = data
-    }else{
+    } else {
       Object.keys(deskframe).forEach(user => delete frames[user])
       deskframe[user] = data
     }
@@ -671,7 +750,7 @@ onMounted(() => {
 
   // 监听评论
   socket.on('receive_comment', (data) => {
-    const { user, message, timestamp } = data
+    const {user, message, timestamp} = data
     decrypted_data = decrypt_the_data(message)
     console.log('bef_decrypted', message)
     console.log('after_decrypted', decrypted_data)
@@ -687,7 +766,7 @@ onMounted(() => {
 
   // 监听系统消息
   socket.on('system_message', (data) => {
-    const { message, timestamp } = data
+    const {message, timestamp} = data
     messages.push({
       id: generateId(),
       type: 'system',
@@ -878,5 +957,12 @@ onBeforeUnmount(() => {
 .comment-input {
   display: flex;
   flex-direction: column;
+}
+
+.timestamp {
+  display: block;
+  font-size: 0.8em;
+  color: #909399;
+  margin-top: 2px;
 }
 </style>

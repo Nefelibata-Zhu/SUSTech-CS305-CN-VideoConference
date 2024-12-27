@@ -42,6 +42,26 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # }
 meetings = {}
 
+# API 端点：列出所有会议
+@app.route('/list_meetings', methods=['GET'])
+def list_meetings():
+    """
+    获取当前所有会议的列表，包括会议号和创建者用户名。
+    """
+    meeting_list = []
+    for meeting_id, meeting_data in meetings.items():
+        creator_sid = meeting_data.get('creator_sid')
+        if creator_sid and creator_sid in meeting_data['clients']:
+            creator = meeting_data['clients'][creator_sid]
+        else:
+            creator = 'Unknown'  # 如果没有创建者信息
+        meeting_list.append({
+            'meeting_id': meeting_id,
+            'creator': creator
+        })
+    return jsonify({'meetings': meeting_list}), 200
+
+
 @app.route('/create_meeting', methods=['POST'])
 def create_meeting():
     """
