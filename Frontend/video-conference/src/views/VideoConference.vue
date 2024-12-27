@@ -797,6 +797,16 @@ onMounted(async () => {
   })
 })
 
+socket.on('switch_to_p2p', (data) => {
+    console.log(data.message)
+    ElMessage.success('人数达到2人，切换至p2p模式')
+  })
+
+socket.on('switch_to_cs', (data) => {
+    console.log(data.message)
+    ElMessage.success('人数超过2人，切换至cs模式')
+  })
+
 // 生命周期钩子: 组件卸载前清理 Socket 事件监听（避免内存泄漏）
 onBeforeUnmount(() => {
   if (isInMeeting.value) {

@@ -177,6 +177,16 @@ def join_meeting(data):
         {'is_creator': is_creator},
         to=request.sid
     )
+    # 检查当前会议人数，决定是否切换模式
+    current_count = len(meetings[meeting_id]['clients'])
+    previous_mode = meetings[meeting_id]['mode']
+
+    if current_count == 3 and previous_mode == 'p2p':
+        print('Switching to cs mode...')
+        emit('switch_to_cs', {'message': '参与人数超过2人，切换到CS模式'}, room=meeting_id)
+    elif current_count == 2 and previous_mode == 'cs':
+        print('Switching to p2p mode...')
+        emit('switch_to_p2p', {'message': '参与人数为2人或更少，可以使用P2P模式'}, room=meeting_id)
 
 @socketio.on('leave_meeting')
 def leave_meeting(data):
@@ -197,6 +207,15 @@ def leave_meeting(data):
         del meetings[meeting_id]['clients'][request.sid]
         leave_room(meeting_id)
         print(f"用户 {user} 离开了会议 {meeting_id}")
+
+        # 检查当前会议人数，决定是否切换模式
+        current_count = len(meetings[meeting_id]['clients'])
+        previous_mode = meetings[meeting_id]['mode']
+
+        if current_count == 2 and previous_mode == 'cs':
+            emit('switch_to_p2p', {'message': '参与人数为2人，可以切换到P2P模式'}, room=meeting_id)
+        elif current_count == 1 and previous_mode == 'p2p':
+            emit('switch_to_cs', {'message': '参与人数为1人，可以使用cs模式'}, room=meeting_id)
 
         # 移除用户的视频帧
         if user in meetings[meeting_id]['frames']:
