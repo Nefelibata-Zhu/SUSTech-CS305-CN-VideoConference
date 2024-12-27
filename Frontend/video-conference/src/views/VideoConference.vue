@@ -798,11 +798,13 @@ onMounted(async () => {
 })
 
 socket.on('switch_to_p2p', (data) => {
+    console.log('Switching to p2p...')
     console.log(data.message)
     ElMessage.success('人数达到2人，切换至p2p模式')
   })
 
 socket.on('switch_to_cs', (data) => {
+    console.log('Switching to cs...')
     console.log(data.message)
     ElMessage.success('人数超过2人，切换至cs模式')
   })

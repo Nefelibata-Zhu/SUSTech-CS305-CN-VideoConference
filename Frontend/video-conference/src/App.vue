@@ -1,7 +1,8 @@
 <template>
   <nav>
     <router-link to="/videoConference">Video Conference</router-link> |
-    <router-link to="/test">Test</router-link>
+    <router-link to="/test">Test</router-link> |
+    <router-link to="/testAudio">Test Audio</router-link>
   </nav>
   <router-view/>
 </template>
@@ -28,3 +29,5 @@ nav {
   }
 }
 </style>
+<script setup>
+</script>

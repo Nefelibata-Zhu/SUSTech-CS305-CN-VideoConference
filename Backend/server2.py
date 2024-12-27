@@ -86,7 +86,8 @@ def create_meeting():
             'frames': {},  
             'deskframe': {}, # desktop frame {username: deskframe},
             'key': base64.b64encode(key).decode('utf-8'),
-            'iv': base64.b64encode(iv).decode('utf-8')
+            'iv': base64.b64encode(iv).decode('utf-8'),
+            'mode': 'cs'
             # 'encryptor': cipher.encryptor(),
             # 'decryptor': cipher.decryptor()
         }
@@ -183,9 +184,11 @@ def join_meeting(data):
 
     if current_count == 3 and previous_mode == 'p2p':
         print('Switching to cs mode...')
+        meetings[meeting_id]['mode'] = 'cs'
         emit('switch_to_cs', {'message': '参与人数超过2人，切换到CS模式'}, room=meeting_id)
     elif current_count == 2 and previous_mode == 'cs':
         print('Switching to p2p mode...')
+        meetings[meeting_id]['mode'] = 'p2p'
         emit('switch_to_p2p', {'message': '参与人数为2人或更少，可以使用P2P模式'}, room=meeting_id)
 
 @socketio.on('leave_meeting')
@@ -213,8 +216,10 @@ def leave_meeting(data):
         previous_mode = meetings[meeting_id]['mode']
 
         if current_count == 2 and previous_mode == 'cs':
+            meetings[meeting_id]['mode'] = 'p2p'
             emit('switch_to_p2p', {'message': '参与人数为2人，可以切换到P2P模式'}, room=meeting_id)
         elif current_count == 1 and previous_mode == 'p2p':
+            meetings[meeting_id]['mode'] = 'cs'
             emit('switch_to_cs', {'message': '参与人数为1人，可以使用cs模式'}, room=meeting_id)
 
         # 移除用户的视频帧
